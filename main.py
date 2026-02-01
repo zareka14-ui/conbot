@@ -1,7 +1,6 @@
 import os
 import logging
 import threading
-import re
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from telegram import (
@@ -36,13 +35,13 @@ try:
 except (ValueError, TypeError):
     ADMIN_ID = None
 
-# Состояния (убран BUDGET)
+# Состояния
 SERVICE_CHOICE, PROJECT_DETAILS, TIMELINE, CONTACT, CONFIRMATION = range(5)
 
-# Ссылка на вашу заставку (логотип, который мы делали ранее или любое фото)
-START_IMAGE_URL = "https://belayarod.ru/leto/imagebot.png" # Замените на реальную ссылку
+# Ссылка на заставку
+START_IMAGE_URL = "https://belayarod.ru/leto/imagebot.png"
 
-# --- ВЕБ-СЕРВЕР ---
+# --- ВЕБ-СЕРВЕР ДЛЯ RENDER/HEROKU ---
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -86,39 +85,39 @@ class LandingBot:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         user = update.effective_user
+        # Обновленный универсальный текст
         text = (
-            f"✨ **Добрый день, {user.first_name}!**\n\n"
-            "Мы рады приветствовать вас. Наша миссия — помочь в автоматизации вашего пространства, "
-            "сделать его удобным, технологичным и эстетичным.\n\n"
-            "Для предоставления услуг нам необходимо познакомиться и узнать ваше техническое задание. "
-            "Это поможет нам предложить решение, идеально подходящее именно вам."
+            f"<b>Приветствуем, {user.first_name}!</b>\n\n"
+            "Мы создаем цифровую упаковку для ваших проектов и практик под ключ.\n\n"
+            "Для проводников, менторов, психологов и организаторов ретритов. "
+            "Наша задача — создать эстетичное и функциональное пространство, которое созвучно вашим ценностям."
         )
         keyboard = [
             [InlineKeyboardButton("💎 Начать знакомство", callback_data="order")],
             [InlineKeyboardButton("💼 Услуги", callback_data="services"), InlineKeyboardButton("📞 Контакты", callback_data="contact")]
         ]
         
-        # Пытаемся отправить фото с подписью, если ссылка валидна
         try:
             await update.message.reply_photo(
                 photo=START_IMAGE_URL,
                 caption=text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode='Markdown'
+                parse_mode='HTML'
             )
-        except:
-            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Error sending photo: {e}")
+            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode='HTML')
 
     async def start_order(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await update.message.reply_text("🌿 **С чего мы начнем?**\nВыберите интересующее направление:", 
-                                       reply_markup=self._get_services_kb())
+        await update.message.reply_text("<b>🌿 С чего мы начнем?</b>\nВыберите интересующее направление:", 
+                                       reply_markup=self._get_services_kb(), parse_mode='HTML')
         return SERVICE_CHOICE
 
     async def start_order_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
-        await query.edit_message_text("🌿 **С чего мы начнем?**\nВыберите интересующее направление:", 
-                                     reply_markup=self._get_services_kb())
+        await query.edit_message_text("<b>🌿 С чего мы начнем?</b>\nВыберите интересующее направление:", 
+                                     reply_markup=self._get_services_kb(), parse_mode='HTML')
         return SERVICE_CHOICE
 
     def _get_services_kb(self):
@@ -133,44 +132,42 @@ class LandingBot:
         srv_map = {"srv_landing": "Лендинг", "srv_bot": "Бот", "srv_other": "Комплекс"}
         service = srv_map.get(query.data, "Неизвестно")
         context.user_data['service'] = service
-        await query.edit_message_text(f"✅ Выбрано: **{service}**.\n\n📝 Опишите кратко суть задачи (ваши пожелания):")
+        await query.edit_message_text(f"✅ Выбрано: <b>{service}</b>.\n\n📝 Опишите кратко суть задачи (ваши пожелания):", parse_mode='HTML')
         return PROJECT_DETAILS
 
     async def get_project_details(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # Защита: слишком короткое описание
         if len(update.message.text) < 10:
-            await update.message.reply_text("🌸 Пожалуйста, опишите задачу чуть подробнее (хотя бы пару предложений), чтобы мы могли вас понять.")
+            await update.message.reply_text("🌸 Пожалуйста, опишите задачу чуть подробнее, чтобы мы могли лучше вас понять.")
             return PROJECT_DETAILS
             
         context.user_data['details'] = update.message.text
-        await update.message.reply_text("⏱ **Желаемые сроки реализации?**")
+        await update.message.reply_text("<b>⏱ Желаемые сроки реализации?</b>", parse_mode='HTML')
         return TIMELINE
 
     async def get_timeline(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['timeline'] = update.message.text
-        await update.message.reply_text("📱 **Как мастер может с вами связаться?**\nОставьте ваш @username или номер телефона:")
+        await update.message.reply_text("<b>📱 Как мастер может с вами связаться?</b>\nОставьте ваш @username или номер телефона:", parse_mode='HTML')
         return CONTACT
 
     async def get_contact(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # Защита: проверка на пустоту или слишком короткий ввод
         contact = update.message.text
         if len(contact) < 5:
-            await update.message.reply_text("⚠️ Пожалуйста, укажите корректные данные (например, @username или номер), чтобы мы не потеряли связь.")
+            await update.message.reply_text("⚠️ Пожалуйста, укажите корректные данные для связи.")
             return CONTACT
 
         context.user_data['contact'] = contact
         data = context.user_data
         summary = (
-            f"📋 **Ваша заявка сформирована:**\n\n"
-            f"💠 **Услуга:** {data['service']}\n"
-            f"📝 **Задача:** {data['details']}\n"
-            f"⏱ **Сроки:** {data['timeline']}\n"
-            f"📞 **Контакт:** {data['contact']}\n\n"
-            "✨ *Отправить данные нашему специалисту?*"
+            f"<b>📋 Ваша заявка сформирована:</b>\n\n"
+            f"💠 <b>Услуга:</b> {data['service']}\n"
+            f"📝 <b>Задача:</b> {data['details']}\n"
+            f"⏱ <b>Сроки:</b> {data['timeline']}\n"
+            f"📞 <b>Контакт:</b> {data['contact']}\n\n"
+            "<i>Отправить данные нашему специалисту?</i>"
         )
         context.user_data['summary'] = summary
         kb = [[InlineKeyboardButton("✅ Отправить", callback_data="confirm_order"), InlineKeyboardButton("✏️ Исправить", callback_data="edit_order")]]
-        await update.message.reply_text(summary, reply_markup=InlineKeyboardMarkup(kb), parse_mode='Markdown')
+        await update.message.reply_text(summary, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
         return CONFIRMATION
 
     async def confirm_order(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -179,12 +176,13 @@ class LandingBot:
         if ADMIN_ID:
             try:
                 user = update.effective_user
-                admin_text = f"🚨 **НОВЫЙ ЗАКАЗ!**\nОт: {user.mention_markdown()}\n\n{context.user_data['summary']}"
-                await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode='Markdown')
+                # В админ-панель шлем тоже HTML
+                admin_text = f"🚨 <b>НОВЫЙ ЗАКАЗ!</b>\nОт: {user.mention_html()}\n\n{context.user_data['summary']}"
+                await context.bot.send_message(chat_id=ADMIN_ID, text=admin_text, parse_mode='HTML')
             except Exception as e:
                 logger.error(f"Ошибка отправки админу: {e}")
 
-        await query.edit_message_text("🌸 **Благодарим за доверие!**\nЗаявка принята. Мастер свяжется с вами для обсуждения деталей в ближайшее время.")
+        await query.edit_message_text("🌸 <b>Благодарим за доверие!</b>\nЗаявка принята. Мастер свяжется с вами в ближайшее время.")
         context.user_data.clear()
         return ConversationHandler.END
 
@@ -201,13 +199,22 @@ class LandingBot:
     async def button_click(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         query = update.callback_query
         await query.answer()
+        
         if query.data == "services":
-            text = "🛠 **Наши возможности:**\n\n• Индивидуальные Telegram-боты\n• Эстетичные лендинги\n• Системы записи и автоматизации"
+            text = (
+                "<b>🛠 Наши возможности:</b>\n\n"
+                "• Индивидуальные Telegram-боты\n"
+                "• Эстетичные лендинги и сайты\n"
+                "• Системы автоматизации и записи"
+            )
             await self._send_or_edit(update, text, InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back")]]))
+        
         elif query.data == "contact":
-            await self._send_or_edit(update, "📞 Для прямой связи с мастером: @ваш_юзернейм", InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back")]]))
+            # ТЕПЕРЬ НЕ БУДЕТ ОШИБКИ ИЗ-ЗА НИЖНЕГО ПОДЧЕРКИВАНИЯ
+            text = "📞 Для прямой связи с мастером: @ваш_юзернейм"
+            await self._send_or_edit(update, text, InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Назад", callback_data="back")]]))
+            
         elif query.data == "back":
-            # Возврат к стартовому меню (без повторной отправки фото, если это был колбэк)
             text = "✨ Пожалуйста, выберите нужный раздел меню:"
             kb = [
                 [InlineKeyboardButton("💎 Начать знакомство", callback_data="order")],
@@ -216,13 +223,15 @@ class LandingBot:
             await self._send_or_edit(update, text, InlineKeyboardMarkup(kb))
 
     async def _send_or_edit(self, update, text, markup):
+        """Вспомогательный метод для обновления сообщений с HTML"""
         if update.callback_query:
             try:
-                await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='Markdown')
-            except:
-                await update.callback_query.message.reply_text(text, reply_markup=markup, parse_mode='Markdown')
+                await update.callback_query.edit_message_text(text, reply_markup=markup, parse_mode='HTML')
+            except Exception:
+                # Если сообщение нельзя редактировать (например, оно старое или с фото)
+                await update.callback_query.message.reply_text(text, reply_markup=markup, parse_mode='HTML')
         else:
-            await update.message.reply_text(text, reply_markup=markup, parse_mode='Markdown')
+            await update.message.reply_text(text, reply_markup=markup, parse_mode='HTML')
 
     def run(self):
         logger.info("🤖 Бот запущен...")
@@ -232,6 +241,7 @@ if __name__ == "__main__":
     if not BOT_TOKEN:
         print("❌ ОШИБКА: Не задан BOT_TOKEN")
     else:
+        # Запуск веб-сервера в отдельном потоке (нужно для Render)
         threading.Thread(target=start_health_check_server, daemon=True).start()
         bot = LandingBot(BOT_TOKEN)
         bot.run()
